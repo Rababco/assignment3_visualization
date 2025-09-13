@@ -112,68 +112,7 @@ st.markdown("---")
 def safe_pct(num, den):
     return 0.0 if den == 0 else round(100.0 * num / den, 1)
 
-# ───────── Chart 1 — Public Park Condition by Area (stacked bar) ─────────
-parks_cols = [c for c in ["parks_bad","parks_acceptable","parks_good"] if c in fdf.columns]
-if parks_cols and not fdf.empty:
-    g = fdf.groupby("Area", as_index=False)[parks_cols].sum()
-    long = g.melt(id_vars="Area", var_name="state", value_name="count")
-    state_labels = {"parks_bad":"Bad","parks_acceptable":"Acceptable","parks_good":"Good"}
-    long["state"] = long["state"].map(state_labels)
-
-    if norm_pct:
-        denom = long.groupby("Area")["count"].transform("sum").replace(0, 1)
-        long["value"] = (long["count"] / denom * 100).round(2)
-        ycol, ytitle = "value", "Share (%)"
-    else:
-        ycol, ytitle = "count", "Count (towns)"
-
-    # Sort areas by total
-    area_order = long.groupby("Area")[ycol].sum().sort_values(ascending=False).index.tolist()
-    long["Area"] = pd.Categorical(long["Area"], categories=area_order, ordered=True)
-    long = long.sort_values("Area")
-
-    fig1 = px.bar(
-        long, x="Area", y=ycol, color="state",
-        labels={"Area": level, ycol: ytitle, "state": "Condition"},
-        title=f"Public park condition by {level.lower()}",
-    )
-    fig1.update_layout(barmode="stack", xaxis_tickangle=-30, legend_title_text="Condition")
-    st.plotly_chart(fig1, use_container_width=True)
-
-    # —— Notes & Insights (Chart 1) ——
-    with st.expander("Notes & Insights — Public Park Condition"):
-        # Build a small insight table
-        totals = g.assign(total=g[parks_cols].sum(axis=1))
-        good_share = (g["parks_good"] / totals["total"].replace(0, 1)).fillna(0)
-        bad_share  = (g["parks_bad"]  / totals["total"].replace(0, 1)).fillna(0)
-
-        top_total = totals.sort_values("total", ascending=False).head(1)
-        top_good  = good_share.sort_values(ascending=False).head(1).index
-        top_bad   = bad_share.sort_values(ascending=False).head(1).index
-
-        if not top_total.empty:
-            tt_area = top_total["Area"].iloc[0]
-            tt_val  = int(top_total["total"].iloc[0])
-            st.markdown(f"- **Highest overall volume:** **{tt_area}** ({tt_val} town-condition flags).")
-
-        if len(top_good) > 0:
-            area_g = g.loc[top_good[0], "Area"] if "Area" in g.columns else g.iloc[top_good[0]]["Area"]
-            pct_g  = safe_pct(int(g.loc[top_good[0], "parks_good"]), int(totals.loc[top_good[0], "total"]))
-            st.markdown(f"- **Highest share Good:** **{area_g}** (~{pct_g}%).")
-
-        if len(top_bad) > 0:
-            area_b = g.loc[top_bad[0], "Area"] if "Area" in g.columns else g.iloc[top_bad[0]]["Area"]
-            pct_b  = safe_pct(int(g.loc[top_bad[0], "parks_bad"]), int(totals.loc[top_bad[0], "total"]))
-            st.markdown(f"- **Highest share Bad:** **{area_b}** (~{pct_b}%).")
-
-        if norm_pct:
-            st.markdown("- Percent view is enabled: comparisons reflect **composition** rather than raw counts.")
-        else:
-            st.markdown("- Count view is enabled: larger areas naturally show higher totals.")
-else:
-    st.info("Park condition columns not found.")
-
-# ───────── Chart 2 — Treemap (like your slide) ─────────
+# ───────── Visualization TWO (now FIRST) — Treemap ─────────
 tdf = fdf.copy()
 if split_mode == "Park Existence":
     tdf["TreemapGroup"] = tdf["parks_exist"].map({1: "Parks exist", 0: "No parks"}).fillna("No data")
@@ -216,12 +155,10 @@ if not agg.empty:
     fig2.update_traces(textinfo="label+value")
     st.plotly_chart(fig2, use_container_width=True)
 
-    # —— Notes & Insights (Chart 2) ——
+    # —— Notes & Insights (Chart 2) —— 
     with st.expander(f"Notes & Insights — {subtitle}"):
-        # high-level numbers
         total_towns = int(agg["count"].sum())
         by_group = agg.groupby("TreemapGroup", as_index=False)["count"].sum()
-        # sort by our intended order
         by_group["order"] = by_group["TreemapGroup"].map(order_index).fillna(999).astype(int)
         by_group = by_group.sort_values("order")
         bullets = []
@@ -229,16 +166,73 @@ if not agg.empty:
             bullets.append(f"- **{r['TreemapGroup']}**: {int(r['count'])} towns ({safe_pct(int(r['count']), total_towns)}%).")
         st.markdown("\n".join(bullets))
 
-        # top area by chosen group (if meaningful)
         if split_mode == "Park Existence":
             exist_df = agg[agg["TreemapGroup"] == "Parks exist"].sort_values("count", ascending=False)
             if not exist_df.empty:
                 st.markdown(f"- **Largest concentration of towns with parks:** **{exist_df.iloc[0]['AreaShort']}** ({int(exist_df.iloc[0]['count'])}).")
         elif split_mode in ("Park Condition", "Lighting Condition"):
-            # show which area has the largest "Good" group if present
             good_df = agg[agg["TreemapGroup"] == "Good"].sort_values("count", ascending=False)
             if not good_df.empty:
                 st.markdown(f"- **Most ‘Good’ entries:** **{good_df.iloc[0]['AreaShort']}** ({int(good_df.iloc[0]['count'])}).")
-
 else:
     st.info("No data after filters to draw the treemap.")
+
+# ───────── Visualization ONE (now SECOND) — Public Park Condition by Area (stacked bar) ─────────
+parks_cols = [c for c in ["parks_bad","parks_acceptable","parks_good"] if c in fdf.columns]
+if parks_cols and not fdf.empty:
+    g = fdf.groupby("Area", as_index=False)[parks_cols].sum()
+    long = g.melt(id_vars="Area", var_name="state", value_name="count")
+    state_labels = {"parks_bad":"Bad","parks_acceptable":"Acceptable","parks_good":"Good"}
+    long["state"] = long["state"].map(state_labels)
+
+    if norm_pct:
+        denom = long.groupby("Area")["count"].transform("sum").replace(0, 1)
+        long["value"] = (long["count"] / denom * 100).round(2)
+        ycol, ytitle = "value", "Share (%)"
+    else:
+        ycol, ytitle = "count", "Count (towns)"
+
+    # Sort areas by total
+    area_order = long.groupby("Area")[ycol].sum().sort_values(ascending=False).index.tolist()
+    long["Area"] = pd.Categorical(long["Area"], categories=area_order, ordered=True)
+    long = long.sort_values("Area")
+
+    fig1 = px.bar(
+        long, x="Area", y=ycol, color="state",
+        labels={"Area": level, ycol: ytitle, "state": "Condition"},
+        title=f"Public park condition by {level.lower()}",
+    )
+    fig1.update_layout(barmode="stack", xaxis_tickangle=-30, legend_title_text="Condition")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # —— Notes & Insights (Chart 1) —— 
+    with st.expander("Notes & Insights — Public Park Condition"):
+        totals = g.assign(total=g[parks_cols].sum(axis=1))
+        good_share = (g["parks_good"] / totals["total"].replace(0, 1)).fillna(0)
+        bad_share  = (g["parks_bad"]  / totals["total"].replace(0, 1)).fillna(0)
+
+        top_total = totals.sort_values("total", ascending=False).head(1)
+        top_good  = good_share.sort_values(ascending=False).head(1).index
+        top_bad   = bad_share.sort_values(ascending=False).head(1).index
+
+        if not top_total.empty:
+            tt_area = top_total["Area"].iloc[0]
+            tt_val  = int(top_total["total"].iloc[0])
+            st.markdown(f"- **Highest overall volume:** **{tt_area}** ({tt_val} town-condition flags).")
+
+        if len(top_good) > 0:
+            area_g = g.loc[top_good[0], "Area"] if "Area" in g.columns else g.iloc[top_good[0]]["Area"]
+            pct_g  = safe_pct(int(g.loc[top_good[0], "parks_good"]), int(totals.loc[top_good[0], "total"]))
+            st.markdown(f"- **Highest share Good:** **{area_g}** (~{pct_g}%).")
+
+        if len(top_bad) > 0:
+            area_b = g.loc[top_bad[0], "Area"] if "Area" in g.columns else g.iloc[top_bad[0]]()["Area"]
+            pct_b  = safe_pct(int(g.loc[top_bad[0], "parks_bad"]), int(totals.loc[top_bad[0], "total"]))
+            st.markdown(f"- **Highest share Bad:** **{area_b}** (~{pct_b}%).")
+
+        if norm_pct:
+            st.markdown("- Percent view is enabled: comparisons reflect **composition** rather than raw counts.")
+        else:
+            st.markdown("- Count view is enabled: larger areas naturally show higher totals.")
+else:
+    st.info("Park condition columns not found.")
