@@ -3,11 +3,17 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 
-# ── Page setup ────────────────────────────────────────────────────────────────
+# ── Page setup (first Streamlit calls) ───────────────────────────────────────
 st.set_page_config(page_title="Parks Distribution and Conditions in Lebanon", layout="wide")
-st.title("Parks Distribution and Conditions in Lebanon")
-st.caption("Data: Public_spaces-Lebanon-2023 (PKGCube). CSV is read from the same folder as this app.")
-st.markdown("<style>div.block-container{padding-top:1rem;padding-bottom:1rem}</style>", unsafe_allow_html=True)
+st.markdown("""
+    <style>
+      .block-container { padding-top: 2.6rem !important; }
+      h1.app-title { font-size: 2.4rem !important; line-height: 1.15; margin: 0 0 .4rem 0; }
+      @media (max-width: 1100px) { h1.app-title { font-size: 2.0rem !important; } }
+    </style>
+""", unsafe_allow_html=True)
+st.markdown("<h1 class='app-title'>Parks Distribution and Conditions in Lebanon</h1>", unsafe_allow_html=True)
+st.caption("Source: PKGCube — Public Spaces in Lebanon (2023). Unit: towns; aggregated to districts/governorates.")
 
 # ── Load & prep data ─────────────────────────────────────────────────────────
 @st.cache_data
@@ -65,7 +71,7 @@ def load_data():
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
 
-    # One label for park & lighting condition (for notes)
+    # Compact labels for notes
     def tri_label(row, bad, ok, good):
         vals = {"Bad": row.get(bad, 0), "Acceptable": row.get(ok, 0), "Good": row.get(good, 0)}
         label = max(vals, key=vals.get)
@@ -89,7 +95,10 @@ df = load_data()
 # ── Build Town→District/Governorate mapping (for ranking chart) ──────────────
 @st.cache_data
 def build_geo_mappings(df: pd.DataFrame):
-    # Infer each Town's district and governorate from dataset
+    if "Town" not in df.columns:
+        # Return empty if dataset lacks 'Town'
+        return pd.DataFrame(), []
+
     dist_series = (
         df[(df["Level"] == "District") & df["AreaShort"].notna() & df["AreaShort"].astype(str).ne("")]
         .dropna(subset=["Town"])
@@ -102,8 +111,6 @@ def build_geo_mappings(df: pd.DataFrame):
         .groupby("Town")["AreaShort"]
         .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0])
     )
-
-    # parks_exist per Town (max across duplicates)
     px_series = (
         df.dropna(subset=["Town"])
           .groupby("Town")["parks_exist"]
@@ -121,7 +128,7 @@ def build_geo_mappings(df: pd.DataFrame):
 
 towns_map, ALL_GOVS = build_geo_mappings(df)
 
-# ── Sidebar (clean; no Top N slider) ─────────────────────────────────────────
+# ── Sidebar (clean) ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     level = st.radio("Administrative level", ["Governorate", "District"], horizontal=True)
@@ -129,7 +136,7 @@ with st.sidebar:
     sel_areas = st.multiselect("Areas", areas_all, default=areas_all)
     norm_pct = st.toggle("Normalize park condition bars to %", value=False)
 
-# Filtered data for second chart (park conditions)
+# Filtered data for the second chart (park conditions)
 fdf = df[(df["Level"] == level) & (df["Area"].isin(sel_areas))].copy()
 
 # ── KPIs ─────────────────────────────────────────────────────────────────────
@@ -144,15 +151,13 @@ def safe_pct(n, d):  # helper
     return 0.0 if d == 0 else round(100.0 * n / d, 1)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# CHART 1 — Governorates by Park Existence (%)
-#   - If Level=Governorate, respects selected governorates
-#   - If Level=District, it still shows all governorates (no district limiter)
+# CHART 1 — Governorates by Park Existence (%)  (always shows all govs,
+#   or only selected governorates when Level=Governorate + Areas filtered)
 # ═════════════════════════════════════════════════════════════════════════════
 if "Town" in df.columns and not towns_map.empty:
     tdf = towns_map.copy()
 
     if level == "Governorate":
-        # Map selected governorate Areas → AreaShort
         sel_gov = set(
             df.loc[(df["Level"] == "Governorate") & (df["Area"].isin(sel_areas)), "AreaShort"]
               .dropna().astype(str).unique()
@@ -171,7 +176,7 @@ if "Town" in df.columns and not towns_map.empty:
         gov["parks_pct"] = (gov["parks"] / gov["towns"] * 100).round(1)
         gov_sorted = gov.sort_values(["parks_pct", "towns"], ascending=[False, False])
 
-        # Order so the highest is at the top (horizontal bar)
+        # Order so the highest renders on top in a horizontal bar
         y_order = list(gov_sorted["Governorate"])[::-1]
 
         fig_rank = px.bar(
@@ -191,7 +196,6 @@ if "Town" in df.columns and not towns_map.empty:
         )
         st.plotly_chart(fig_rank, use_container_width=True)
 
-        # Notes & Insights (Ranking)
         with st.expander("Notes & Insights — Governorate Ranking", expanded=False):
             best = gov_sorted.iloc[0]
             worst = gov_sorted.iloc[-1]
